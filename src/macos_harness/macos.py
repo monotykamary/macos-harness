@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Iterable
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -268,11 +269,20 @@ def _split_scroll_delta(delta: int, maximum: int) -> list[int]:
     return steps or [0]
 
 
+def _invalidates_guarded(method):
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        self._invalidate_guarded_observations()
+        return method(self, *args, **kwargs)
+    return wrapped
+
+
 class MacOS:
     """Low-level macOS observation and control for one persistent process."""
 
     def __init__(self) -> None:
         _require_macos()
+        self._guarded_generation = 0
         self._elements: dict[int, Any] = {}
         self._last_app: dict[str, Any] | None = None
         self._last_windows: list[dict[str, Any]] = []
@@ -286,6 +296,10 @@ class MacOS:
         self._pointer_position: tuple[float, float] | None = None
         self._overlay = LivePointerOverlay()
         self.ax = Accessibility(self)
+
+    def _invalidate_guarded_observations(self) -> None:
+        """Invalidate guarded handles before raw snapshot resets or mutations."""
+        self._guarded_generation = getattr(self, "_guarded_generation", 0) + 1
 
     # --- permissions and app discovery ---------------------------------
 
@@ -533,6 +547,7 @@ class MacOS:
             }
         return {field: int(getattr(decoded, field)) for field in fields}
 
+    @_invalidates_guarded
     def _snapshot_tree(
         self,
         root: Any,
@@ -757,6 +772,7 @@ class MacOS:
             for name, value in self._copy_attributes(element, attributes).items()
         }
 
+    @_invalidates_guarded
     def ax_search(
         self,
         *,
@@ -904,6 +920,7 @@ class MacOS:
                     break
         return matches
 
+    @_invalidates_guarded
     def set(self, element_index: int, value: Any, attribute: str = "AXValue") -> None:
         element = self._element(element_index)
         error = AS.AXUIElementSetAttributeValue(element, attribute, value)
@@ -912,6 +929,7 @@ class MacOS:
 
     set_value = set
 
+    @_invalidates_guarded
     def perform_action(self, element_index: int, action: str = "AXPress") -> None:
         element = self._element(element_index)
         normalized = _ACTION_ALIASES.get(action.casefold(), action)
@@ -1203,6 +1221,7 @@ class MacOS:
     def hide_pointer(self) -> None:
         self._overlay.hide()
 
+    @_invalidates_guarded
     def click(
         self,
         x: float,
@@ -1248,6 +1267,7 @@ class MacOS:
         assert pointer is not None
         return pointer
 
+    @_invalidates_guarded
     def drag(
         self,
         from_x: float,
@@ -1304,6 +1324,7 @@ class MacOS:
         )
         self._guard_focus(focus_before, pid, "drag")
 
+    @_invalidates_guarded
     def scroll(
         self,
         delta_y: int,
@@ -1355,6 +1376,7 @@ class MacOS:
             time.sleep(0.01)
             self._guard_focus(focus_before, pid, "scroll")
 
+    @_invalidates_guarded
     def type(self, text: str, *, app: str | None = None) -> None:
         self._ensure_accessibility()
         self._ensure_post_events()
@@ -1385,6 +1407,7 @@ class MacOS:
             time.sleep(0.01)
             self._guard_focus(focus_before, pid, "typing")
 
+    @_invalidates_guarded
     def key(self, key: str, *, app: str | None = None) -> None:
         self._ensure_accessibility()
         self._ensure_post_events()
@@ -1446,6 +1469,7 @@ class MacOS:
 
     # --- Apple Events escape hatch --------------------------------------
 
+    @_invalidates_guarded
     def script(self, source: str, *, language: str = "AppleScript") -> str:
         result = subprocess.run(
             ["/usr/bin/osascript", "-l", language, "-"],

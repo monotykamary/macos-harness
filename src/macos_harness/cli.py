@@ -60,6 +60,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--request", action="store_true", help="request missing global permissions"
     )
     subparsers.add_parser("apps", help="list running macOS applications")
+    serve = subparsers.add_parser("serve", help="persistent guarded JSON-lines RPC (no Python evaluation)")
+    serve.add_argument("--app", action="append", required=True, help="exact allowed app selector; repeat for multiple apps")
     subparsers.add_parser("repl", help="start a persistent interactive Python session")
     subparsers.add_parser("skill", help="print the macOS Harness skill")
     telemetry = subparsers.add_parser(
@@ -85,6 +87,10 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.command == "serve":
+        from .rpc import serve_cli
+
+        return serve_cli(args.app)
     if args.command == "telemetry":
         return run_telemetry_cli([args.action] if args.action else [])
 

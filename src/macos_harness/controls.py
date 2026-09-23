@@ -35,6 +35,7 @@ class Accessibility:
         attributes: Iterable[str] = _COMPACT_ATTRIBUTES,
         include_actions: bool = True,
     ) -> dict[str, Any]:
+        self._host._invalidate_guarded_observations()
         self._host._ensure_accessibility()
         point = self._host._screen_point(x, y, coordinate_space)
         pid = self._host._pid(app)
@@ -112,6 +113,7 @@ class Accessibility:
         return self._host._jsonable(value)
 
     def raw(self, element_index: int) -> Any:
+        self._host._invalidate_guarded_observations()
         return self._host._element(element_index)
 
     def dump(self, app: str, **kwargs: Any) -> dict[str, Any]:

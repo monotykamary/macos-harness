@@ -1,0 +1,25 @@
+{
+  "name": "@macos-harness/pi",
+  "version": "0.1.0",
+  "description": "Optional Pi Fabric connector for the guarded macOS Harness",
+  "type": "module",
+  "keywords": ["pi-package"],
+  "pi": { "extensions": ["./extension.ts"] },
+  "files": ["*.ts"],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*",
+    "pi-fabric": "*"
+  },
+  "peerDependenciesMeta": { "pi-fabric": { "optional": true } },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "pi-fabric": "^0.92.42",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  }
+}
