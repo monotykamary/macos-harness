@@ -8,6 +8,8 @@ export type { MacOSHarnessConfig } from "./config.js";
 export interface MacOSHarnessClientOptions {
   command: readonly string[];
   allowedApps: readonly string[];
+  ocr?: "never" | "auto" | "always";
+  ocrRecognitionLevel?: "accurate" | "fast";
   cwd: string;
   callTimeoutMs: number;
   signal: AbortSignal;
@@ -37,8 +39,8 @@ export class MacOSHarnessProvider implements FabricProvider {
 
   constructor(config: MacOSHarnessConfig, private readonly factory: MacOSHarnessClientFactory = createClient, private readonly cwd = process.cwd()) {
     if (validationMessage(configSchema, config as unknown as Record<string, unknown>)) throw new Error("Invalid macOS Harness configuration");
-    this.#config = { command: [...config.command], allowedApps: [...config.allowedApps], callTimeoutMs: config.callTimeoutMs ?? 10000 };
-    const grantNote = `Exact granted apps: ${JSON.stringify(this.#config.allowedApps)}. Handles belong to this connection only; reconnect invalidates them.`;
+    this.#config = { command: [...config.command], allowedApps: [...config.allowedApps], callTimeoutMs: config.callTimeoutMs ?? 10000, ocr: config.ocr, ocrRecognitionLevel: config.ocrRecognitionLevel };
+    const grantNote = `Exact granted apps: ${JSON.stringify(this.#config.allowedApps)}. OCR mode: ${this.#config.ocr ?? "never"}. Handles belong to this connection only; reconnect invalidates them.`;
     this.#descriptors = [
       {
         name: "connect", description: `Spawn the host-configured macOS Harness server. Success confirms process spawn only, not OS permissions. ${grantNote}`,
@@ -105,11 +107,12 @@ export class MacOSHarnessProvider implements FabricProvider {
         case "observe": result = await client.observe(args, { signal: controller.signal }); break;
         case "act": result = await client.act(args, { signal: controller.signal }); break;
         case "waitForChange": result = await client.waitForChange(args, { signal: controller.signal }); break;
+        case "settle": result = await client.settle(args, { signal: controller.signal }); break;
         default: throw new Error("Unknown macOS Harness action");
       }
       if (controller.signal.aborted || this.#closed) throw new Error("macOS Harness call interrupted");
       const validated = validateInteractionResult(name, result);
-      const observation = name === "waitForChange" ? (validated as { observation?: unknown }).observation : name === "observe" ? validated : undefined;
+      const observation = (name === "waitForChange" || name === "settle") ? (validated as { observation?: unknown }).observation : name === "observe" ? validated : undefined;
       if (observation && (observation as { scope?: { app?: unknown } }).scope?.app !== (args.scope as { app: string }).app) throw new Error("macOS Harness scope mismatch");
       if (name === "act" && (validated as { status: string }).status === "outcome_unknown") this.#disconnect();
       return validated;

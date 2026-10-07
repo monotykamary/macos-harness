@@ -3,6 +3,8 @@ export interface MacOSHarnessConfig {
   command: string[];
   allowedApps: string[];
   callTimeoutMs?: number;
+  ocr?: "never" | "auto" | "always";
+  ocrRecognitionLevel?: "accurate" | "fast";
 }
 export const configSchema: Record<string, unknown> = {
   type: "object",
@@ -17,6 +19,8 @@ export const configSchema: Record<string, unknown> = {
       items: { type: "string", minLength: 1, maxLength: 256, pattern: "^[^\\u0000-\\u0020\\u007f](?:[^\\u0000-\\u001f\\u007f]*[^\\u0000-\\u0020\\u007f])?$" },
       description: "Exact application names or bundle identifiers granted to this connection. No automatic app discovery or permission approval.",
     },
+    ocr: { enum: ["never", "auto", "always"], default: "never", description: "Explicit local Vision screenshot/OCR grant. Default never preserves AX-only privacy. Requires previously approved Screen Recording; never prompts." },
+    ocrRecognitionLevel: { enum: ["accurate", "fast"], default: "fast" },
     callTimeoutMs: { type: "integer", minimum: 100, maximum: 60000, default: 10000, description: "Connect and call deadline. Timeout/cancellation kills the child and invalidates all handles; explicitly reconnect. Default 10000 ms." },
   },
   required: ["command", "allowedApps"], additionalProperties: false,

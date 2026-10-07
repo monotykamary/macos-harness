@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import math
 import re
 import time
 from collections import deque
-from typing import Any
+from typing import Any, ClassVar
 
 from . import macos as native
 from .guarded import ObservationTimeout, Snapshot, Target, bounded, digest
@@ -13,16 +14,61 @@ from .macos import MacOS, MacOSError
 
 
 class NativeAXBackend:
+    ACTIONS: ClassVar[dict[str, str]] = {
+        "click": "AXPress", "press": "AXPress",
+        "increment": "AXIncrement", "decrement": "AXDecrement",
+        "scroll_up": "AXScrollUpByPage", "scroll_down": "AXScrollDownByPage",
+        "scroll_left": "AXScrollLeftByPage", "scroll_right": "AXScrollRightByPage",
+        "showMenu": "AXShowMenu",
+    }
     MAX_VISITS = 512
     MAX_DEPTH = 20
     AX_TIMEOUT = 0.05
     _TEXT_ROLES = frozenset({"AXTextField", "AXTextArea", "AXStaticText", "AXComboBox"})
-    _VALUE_ROLES = _TEXT_ROLES | {"AXCheckBox", "AXRadioButton", "AXSwitch"}
+    _VALUE_ROLES = _TEXT_ROLES | {"AXCheckBox", "AXRadioButton", "AXSwitch", "AXSlider", "AXIncrementor"}
     _SENSITIVE = re.compile(r"password|passcode|secret|token|api[ _-]?key|credit[ _-]?card|one[ _-]?time", re.IGNORECASE)
     _DIALOGS = frozenset({"AXDialog", "AXSystemDialog", "AXSheet"})
 
     def __init__(self, mac: MacOS):
         self.mac = mac
+        self._journal = None
+        self._journal_process = None
+
+    def close(self) -> None:
+        self._close_events()
+
+    def _close_events(self) -> None:
+        if self._journal is not None:
+            self._journal.close()
+            self._journal = None
+        self._journal_process = None
+
+    def _events(self, process: tuple):
+        if process != self._journal_process:
+            self._close_events()
+            self._journal_process = process
+            if hasattr(native.AS, "AXObserverCreate"):
+                from .ax_events import AXChangeJournal
+                self._journal = AXChangeJournal(process[0])
+        return self._journal
+
+    def wait_for_change(self, app: str, sequence: int, timeout: float) -> None:
+        if self._journal is None:
+            time.sleep(timeout)
+        else:
+            self._journal.wait(sequence, timeout)
+
+    def _bounds(self, raw: dict) -> tuple[float, float, float, float] | None:
+        position = self.mac._jsonable(raw.get("AXPosition"))
+        size = self.mac._jsonable(raw.get("AXSize"))
+        if not isinstance(position, dict) or not isinstance(size, dict):
+            return None
+        values = (position.get("x"), position.get("y"), size.get("width"), size.get("height"))
+        if not all(type(v) in (int, float) and math.isfinite(v) for v in values):
+            return None
+        if values[2] <= 0 or values[3] <= 0:
+            return None
+        return tuple(float(v) for v in values)
 
     def _process(self, app: str) -> tuple:
         running, info = self.mac._resolve_app(app)
@@ -131,6 +177,9 @@ class NativeAXBackend:
         settable = role in {"AXTextField", "AXTextArea"} and self.mac._settable(
             element, "AXValue"
         )
+        if role in {"AXApplication", "AXWindow", "AXGroup", "AXScrollArea", "AXSplitGroup", "AXTabGroup", "AXToolbar"}:
+            # A container denial applies to descendants and to pixel fallback.
+            denied = denied or bool(raw["AXHidden"]) or (raw["AXEnabled"] is not None and not bool(raw["AXEnabled"]))
         label = bounded(raw["AXTitle"] or raw["AXDescription"])
         # Permission approval is not a supported workflow, including app-rendered
         # approval controls outside standard sheets. Fail conservatively.
@@ -146,12 +195,8 @@ class NativeAXBackend:
             and not approval
             and window is not None
         ):
-            if "AXPress" in actions and role not in {
-                "AXWindow",
-                "AXApplication",
-                "AXMenuBar",
-            }:
-                operations.append("press")
+            if role not in {"AXWindow", "AXApplication", "AXMenuBar"}:
+                operations.extend(name for name, action in self.ACTIONS.items() if action in actions)
             if settable:
                 operations.append("setValue")
         # Full scalar state is hashed privately; only bounded, selected strings
@@ -176,7 +221,9 @@ class NativeAXBackend:
                 bounded(role, 80),
                 label,
                 tuple(operations),
-                bounded(str(value)) if isinstance(value, (str, bool, int)) else None,
+                bounded(str(value)) if isinstance(value, (str, bool, int, float)) else None,
+                bounds=self._bounds(raw),
+                chrome=subrole in {"AXCloseButton", "AXMinimizeButton", "AXZoomButton", "AXFullScreenButton"},
             ),
             denied,
             False,
@@ -186,6 +233,8 @@ class NativeAXBackend:
         self.mac._ensure_accessibility()  # Non-prompting only.
         process = self._process(app)
         generation = getattr(self.mac, "_guarded_generation", 0)
+        journal = self._events(process)
+        sequence = journal.sequence if journal is not None else 0
         # Do NOT use _application_element: it writes AXEnhancedUserInterface.
         root = native.AS.AXUIElementCreateApplication(process[0])
         error = native.AS.AXUIElementSetMessagingTimeout(root, self.AX_TIMEOUT)
@@ -195,6 +244,7 @@ class NativeAXBackend:
         targets: list[Target] = []
         seen: set[Any] = set()
         truncated = False
+        capture_safe = True
         while queue and len(seen) < self.MAX_VISITS and len(targets) < limit:
             element, window, denied, depth = queue.popleft()
             if element in seen:
@@ -207,6 +257,8 @@ class NativeAXBackend:
                 continue
             target, denied, secure = self._target(element, window, denied, deadline)
             targets.append(target)
+            if secure or denied or target.label.casefold().startswith(("allow", "approve", "grant", "authorize")):
+                capture_safe = False
             if secure:
                 continue  # Never visit descendants of secure containers.
             if depth >= self.MAX_DEPTH:
@@ -225,7 +277,16 @@ class NativeAXBackend:
             self.mac, "_guarded_generation", 0
         ):
             raise MacOSError("Process or raw state changed during observation")
-        return Snapshot(process, generation, tuple(targets), truncated or bool(queue))
+        if journal is not None:
+            journal.watch(tuple(t.native for t in targets))
+            if sequence != journal.sequence:
+                raise ObservationTimeout("AX changed during observation")
+        truncated = truncated or bool(queue)
+        return Snapshot(
+            process, generation, tuple(targets), truncated, sequence,
+            "ax_notifications" if journal is not None and journal.available else "polling",
+            capture_safe and not truncated,
+        )
 
     def execute(
         self,
@@ -274,6 +335,8 @@ class NativeAXBackend:
                     "status": "stale",
                     "reason": "Process or raw generation changed",
                 }
+            if self._journal is not None and self._journal.sequence != snapshot.event_sequence:
+                return {"status": "stale", "reason": "AX activity changed before dispatch"}
             # AXPress has no atomic no-activation flag. Check focus last, then
             # dispatch once; a native race can only be reported, not rolled back.
             before = self.mac._frontmost_app()
@@ -286,8 +349,8 @@ class NativeAXBackend:
             return {"status": "stale", "reason": "Unable to revalidate target"}
         self.mac._invalidate_guarded_observations()
         try:
-            if operation == "press":
-                error = native.AS.AXUIElementPerformAction(target.native, "AXPress")
+            if operation in self.ACTIONS:
+                error = native.AS.AXUIElementPerformAction(target.native, self.ACTIONS[operation])
             elif operation == "setValue":
                 error = native.AS.AXUIElementSetAttributeValue(
                     target.native, "AXValue", text

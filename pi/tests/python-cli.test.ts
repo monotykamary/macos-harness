@@ -26,5 +26,9 @@ it.skipIf(!existsSync(python) || !existsSync(fixture))("adapts the actual offlin
     expect(check.changed).toBe(true);
     expect(check.observation.revision).not.toBe(observation.revision);
     expect(check.observation.observationId).not.toBe(observation.observationId);
+    const settled = await provider.invoke("settle", { scope, revision: check.observation.revision, timeoutMs: 0, reactionMs: 0 }, context) as { reacted: boolean; settled: boolean; timedOut: boolean; observation: HarnessObservation };
+    expect(settled).toMatchObject({ reacted: false, settled: false, timedOut: false });
+    expect(settled.observation.scope).toEqual(scope);
+    expect(settled.observation.observationId).not.toBe(check.observation.observationId);
   } finally { await provider.close(); }
 }, 15000);

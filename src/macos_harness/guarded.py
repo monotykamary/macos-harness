@@ -8,7 +8,7 @@ import secrets
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, Self
 
 
 class GuardedError(ValueError):
@@ -79,6 +79,10 @@ class Target:
     label: str
     operations: tuple[str, ...]
     value: str | None = None
+    source: str = "ax"
+    bounds: tuple[float, float, float, float] | None = None
+    confidence: float | None = None
+    chrome: bool = False  # Title-bar controls do not make an AX-poor app usable.
 
 
 @dataclass(frozen=True)
@@ -87,6 +91,10 @@ class Snapshot:
     generation: int
     targets: tuple[Target, ...]
     truncated: bool = False
+    event_sequence: int = 0
+    change_source: str = "polling"
+    capture_safe: bool = False
+    ocr_status: str = "disabled"
 
     def equivalent(self, other: Snapshot) -> bool:
         return self == other
@@ -125,8 +133,29 @@ class GuardedController:
         self._lock = threading.Lock()
         self._salt = secrets.token_hex(16)
         self._current: tuple | None = None
+        self._limits: dict[str, int] = {}
+        self._closed = False
+
+    def app(self, app: str) -> GuardedApp:
+        return GuardedApp(self, self._scope({"app": app}))
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+            self._current = None
+            close = getattr(self.backend, "close", None)
+            if close is not None:
+                close()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
 
     def _scope(self, scope: Any) -> str:
+        if self._closed:
+            raise GuardedError("closed", "Controller is closed")
         app = string(fields(scope, {"app"})["app"])
         if app not in self.allowed_apps:
             raise GuardedError("scope_denied", "App is not in the configured allowlist")
@@ -141,12 +170,15 @@ class GuardedController:
                 app,
                 snapshot.process,
                 snapshot.generation,
+                snapshot.event_sequence,
+                snapshot.ocr_status,
                 [(hash(t.native), hash(t.window), t.state) for t in snapshot.targets],
                 snapshot.truncated,
                 limit,
             ]
         )
         self._current = (app, observation_id, snapshot, handles, limit)
+        self._limits[app] = limit
         candidates = []
         for handle, target in handles.items():
             item = {
@@ -154,9 +186,14 @@ class GuardedController:
                 "role": bounded(target.role, 80),
                 "label": bounded(target.label),
                 "operations": list(target.operations),
+                "source": target.source,
             }
             if target.value is not None:
                 item["value"] = bounded(target.value)
+            if target.bounds is not None:
+                item["bounds"] = dict(zip(("x", "y", "width", "height"), target.bounds))
+            if target.confidence is not None:
+                item["confidence"] = target.confidence
             candidates.append(item)
         return {
             "scope": {"app": app},
@@ -164,6 +201,8 @@ class GuardedController:
             "revision": revision,
             "candidates": candidates,
             "truncated": snapshot.truncated,
+            "changeSource": snapshot.change_source,
+            "ocrStatus": snapshot.ocr_status,
         }
 
     def observe(self, scope: dict, maxElements: int = 64) -> dict:
@@ -228,38 +267,87 @@ class GuardedController:
                 }
 
     def waitForChange(self, scope: dict, revision: str, timeoutMs: int = 1000) -> dict:
+        return self._wait(scope, revision, timeoutMs)
+
+    def settle(
+        self, scope: dict, revision: str, timeoutMs: int = 2000,
+        reactionMs: int = 600, quietMs: int = 150,
+    ) -> dict:
+        """Wait for reaction then quiet; neither quiet nor a receipt proves success."""
+        reaction = integer(reactionMs, 0, 60000) / 1000
+        quiet = integer(quietMs, 0, 60000) / 1000
+        return self._wait(scope, revision, timeoutMs, (reaction, quiet))
+
+    def _wait(
+        self, scope: dict, revision: str, timeoutMs: int,
+        settling: tuple[float, float] | None = None,
+    ) -> dict:
         app = self._scope(scope)
         string(revision)
         timeout = integer(timeoutMs, 0, 60000) / 1000
         with self._lock:
-            previous = (
-                self._current if self._current and self._current[0] == app else None
-            )
-            limit = previous[4] if previous else 64
+            limit = self._limits.get(app, 64)
             self._current = None
-            deadline = time.monotonic() + timeout
-            # Never re-label a pre-wait snapshot as fresh. If the deadline is
-            # too short for a new read, fail without minting replacement handles.
+            started = time.monotonic()
+            deadline = started + timeout
+            last_revision, last_change = revision, started
+            reacted = settled = timed_out = False
             observation = None
             while True:
                 try:
-                    # timeout=0 is one non-waiting observation (bounded to 2s).
                     snap = self.backend.read_snapshot(
-                        app,
-                        limit,
-                        min(deadline, time.monotonic() + 2)
-                        if timeout
-                        else time.monotonic() + 2,
+                        app, limit, min(deadline, time.monotonic() + 2)
+                        if timeout else time.monotonic() + 2,
                     )
                     observation = self._publish(app, snap, limit)
                 except ObservationTimeout:
                     if observation is None:
                         raise
+                    timed_out = True
                     break
-                if observation["revision"] != revision or time.monotonic() >= deadline:
-                    break
-                time.sleep(min(0.1, max(0, deadline - time.monotonic())))
-            return {
-                "changed": observation["revision"] != revision,
-                "observation": observation,
-            }
+                now = time.monotonic()
+                if observation["revision"] != last_revision:
+                    reacted, last_change = True, now
+                    last_revision = observation["revision"]
+                if settling is None:
+                    if reacted or now >= deadline:
+                        break
+                    wake = deadline
+                else:
+                    reaction, quiet = settling
+                    settled = reacted and now >= last_change + quiet
+                    if settled or (not reacted and now >= started + reaction):
+                        break
+                    if now >= deadline:
+                        timed_out = True
+                        break
+                    wake = min(deadline, last_change + quiet if reacted else started + reaction)
+                delay = min(0.1, max(0, wake - time.monotonic()))
+                wait = getattr(self.backend, "wait_for_change", None)
+                if wait is None:
+                    time.sleep(delay)
+                else:
+                    wait(app, snap.event_sequence, delay)
+            if settling is not None:
+                return {"reacted": reacted, "settled": settled, "timedOut": timed_out, "observation": observation}
+            return {"changed": observation["revision"] != revision, "observation": observation}
+
+
+class GuardedApp:
+    """An allowlisted app scope, not a frontmost-app pointer or new authority."""
+
+    def __init__(self, controller: GuardedController, app: str):
+        self._controller = controller
+        self._app = controller._scope({"app": app})
+
+    def observe(self, maxElements: int = 64) -> dict:
+        return self._controller.observe({"app": self._app}, maxElements)
+
+    def act(self, observationId: str, action: dict) -> dict:
+        return self._controller.act({"app": self._app}, observationId, action)
+
+    def waitForChange(self, revision: str, timeoutMs: int = 1000) -> dict:
+        return self._controller.waitForChange({"app": self._app}, revision, timeoutMs)
+
+    def settle(self, revision: str, timeoutMs: int = 2000, reactionMs: int = 600, quietMs: int = 150) -> dict:
+        return self._controller.settle({"app": self._app}, revision, timeoutMs, reactionMs, quietMs)

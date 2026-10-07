@@ -424,9 +424,9 @@ def test_cli_registration_without_starting_native(monkeypatch):
     from macos_harness import rpc as rpc_module
 
     calls = []
-    monkeypatch.setattr(rpc_module, "serve_cli", lambda apps: calls.append(apps) or 0)
+    monkeypatch.setattr(rpc_module, "serve_cli", lambda apps, **kwargs: calls.append((apps, kwargs)) or 0)
     assert cli.main(["serve", "--app", "Test", "--app", "Other"]) == 0
-    assert calls == [["Test", "Other"]]
+    assert calls == [(["Test", "Other"], {"ocr": "never", "recognition_level": "fast"})]
     with pytest.raises(SystemExit):
         cli.main(["serve"])
 

@@ -7,7 +7,7 @@ import type { MacOSHarnessClient, MacOSHarnessClientOptions } from "./macos.js";
 
 const MAX_FRAME_BYTES = 128 * 1024;
 const MAX_PENDING = 16;
-type Method = "observe" | "act" | "waitForChange";
+type Method = "observe" | "act" | "waitForChange" | "settle";
 type Pending = {
   id: number; method: Method; args: Record<string, unknown>; frame: string; sent: boolean;
   resolve(value: unknown): void; reject(error: Error): void;
@@ -40,7 +40,7 @@ class MacOSHarnessRpcClient implements MacOSHarnessClient {
       type: "object", properties: { app: { type: "string", enum: [...options.allowedApps] } }, required: ["app"], additionalProperties: false,
     });
     try {
-      this.#child = spawn(options.command[0]!, [...options.command.slice(1), "serve", ...options.allowedApps.flatMap(app => ["--app", app])], {
+      this.#child = spawn(options.command[0]!, [...options.command.slice(1), "serve", ...options.allowedApps.flatMap(app => ["--app", app]), ...(options.ocr ? ["--ocr", options.ocr] : []), ...(options.ocrRecognitionLevel ? ["--ocr-recognition-level", options.ocrRecognitionLevel] : [])], {
         cwd: options.cwd, shell: false, stdio: ["pipe", "pipe", "ignore"], detached: process.platform !== "win32",
       });
     } catch { throw failure(); }
@@ -81,6 +81,7 @@ class MacOSHarnessRpcClient implements MacOSHarnessClient {
   observe(args: Record<string, unknown>, options?: HarnessCallOptions) { return this.#request("observe", args, options); }
   act(args: Record<string, unknown>, options?: HarnessCallOptions) { return this.#request("act", args, options); }
   waitForChange(args: Record<string, unknown>, options?: HarnessCallOptions) { return this.#request("waitForChange", args, options); }
+  settle(args: Record<string, unknown>, options?: HarnessCallOptions) { return this.#request("settle", args, options); }
 
   #request(method: Method, args: Record<string, unknown>, options?: HarnessCallOptions): Promise<unknown> {
     const descriptor = this.#schemas.find(item => item.name === method)!;
@@ -149,7 +150,7 @@ class MacOSHarnessRpcClient implements MacOSHarnessClient {
         this.#settle(pending, undefined, true);
       } else {
         const result = validateInteractionResult(pending.method, reply.result);
-        const observation = pending.method === "observe" ? result : pending.method === "waitForChange" ? (result as { observation: unknown }).observation : undefined;
+        const observation = pending.method === "observe" ? result : (pending.method === "waitForChange" || pending.method === "settle") ? (result as { observation: unknown }).observation : undefined;
         if (observation && (observation as { scope?: { app?: unknown } }).scope?.app !== (pending.args.scope as { app: string }).app) throw failure();
         this.#settle(pending, result);
       }

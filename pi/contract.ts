@@ -8,6 +8,9 @@ export interface HarnessCandidate {
   operations: string[];
   value?: string;
   checked?: boolean;
+  source?: "ax" | "ocr";
+  bounds?: { x: number; y: number; width: number; height: number };
+  confidence?: number;
 }
 export interface HarnessObservation {
   scope: Record<string, string>;
@@ -27,6 +30,7 @@ export interface HarnessInteraction {
   observe(args: Record<string, unknown>, options?: HarnessCallOptions): Promise<unknown>;
   act(args: Record<string, unknown>, options?: HarnessCallOptions): Promise<unknown>;
   waitForChange(args: Record<string, unknown>, options?: HarnessCallOptions): Promise<unknown>;
+  settle(args: Record<string, unknown>, options?: HarnessCallOptions): Promise<unknown>;
   invalidate?(scope?: Record<string, unknown>): void;
   close(): void | Promise<void>;
 }
@@ -46,11 +50,15 @@ const observationSchema = {
           id: handle, role: { type: "string", maxLength: 256 }, label: { type: "string", maxLength: 4096 },
           operations: { type: "array", minItems: 0, maxItems: 32, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 64 } },
           value: { type: "string", maxLength: 4096 }, checked: { type: "boolean" },
+          source: { enum: ["ax", "ocr"] }, confidence: { type: "number", minimum: 0, maximum: 1 },
+          bounds: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, width: { type: "number", exclusiveMinimum: 0 }, height: { type: "number", exclusiveMinimum: 0 } }, required: ["x", "y", "width", "height"], additionalProperties: false },
         },
         required: ["id", "role", "label", "operations"],
       },
     },
     truncated: { type: "boolean" },
+    changeSource: { enum: ["polling", "ax_notifications"] },
+    ocrStatus: { enum: ["disabled", "blocked", "not_needed", "used"] },
   },
   required: ["scope", "observationId", "revision", "candidates"],
 };
@@ -65,6 +73,12 @@ const receiptSchema = {
 const waitSchema = {
   type: "object", properties: { changed: { type: "boolean" }, observation: observationSchema },
   required: ["changed", "observation"],
+};
+
+const settleSchema = {
+  type: "object",
+  properties: { reacted: { type: "boolean" }, settled: { type: "boolean" }, timedOut: { type: "boolean" }, observation: observationSchema },
+  required: ["reacted", "settled", "timedOut", "observation"],
 };
 
 /** A model-neutral capability surface. Observations replace ephemeral handles. */
@@ -99,6 +113,12 @@ export function interactionDescriptors(provider: string, scopeSchema: Record<str
       inputSchema: schema({ revision: handle, timeoutMs: { type: "integer", minimum: 0, maximum: 60000 } }, ["revision"]),
       outputSchema: waitSchema,
     },
+    {
+      name: "settle", risk: "read", effect,
+      description: `Wait for a reaction then a quiet interval and return fresh evidence. No reaction, quiet, and timeout are distinct; none proves completion. ${grantNote}`.trim(),
+      inputSchema: schema({ revision: handle, timeoutMs: { type: "integer", minimum: 0, maximum: 60000 }, reactionMs: { type: "integer", minimum: 0, maximum: 60000 }, quietMs: { type: "integer", minimum: 0, maximum: 60000 } }, ["revision"]),
+      outputSchema: settleSchema,
+    },
   ];
 }
 
@@ -107,9 +127,9 @@ export function validateInteractionResult(name: string, value: unknown): unknown
   let encoded: string | undefined;
   try { encoded = JSON.stringify(value); } catch { /* Report only the contract failure, never private payloads. */ }
   if (!encoded || Buffer.byteLength(encoded, "utf8") > 128 * 1024) throw new Error("Invalid harness result size or encoding");
-  const schema = name === "observe" ? observationSchema : name === "act" ? receiptSchema : name === "waitForChange" ? waitSchema : undefined;
+  const schema = name === "observe" ? observationSchema : name === "act" ? receiptSchema : name === "waitForChange" ? waitSchema : name === "settle" ? settleSchema : undefined;
   if (!schema || value === null || typeof value !== "object" || Array.isArray(value) || validationMessage(schema, value as Record<string, unknown>)) throw new Error("Invalid harness result contract");
-  const observation = name === "observe" ? value as HarnessObservation : name === "waitForChange" ? (value as { observation: HarnessObservation }).observation : undefined;
+  const observation = name === "observe" ? value as HarnessObservation : (name === "waitForChange" || name === "settle") ? (value as { observation: HarnessObservation }).observation : undefined;
   if (observation && new Set(observation.candidates.map(candidate => candidate.id)).size !== observation.candidates.length) throw new Error("Duplicate harness target handles");
   return value;
 }

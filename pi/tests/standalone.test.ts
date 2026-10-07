@@ -34,7 +34,7 @@ it("runs outside the sibling layout with installed peers and no Fabric runtime",
       await definition.activate({ invocation: { cwd: process.cwd() }, provide(p) { provider = p; } }, {
         command: ["never-start-this-command"], allowedApps: ["Test"]
       });
-      assert.equal((await provider.list()).length, 4);
+      assert.equal((await provider.list()).length, 5);
       await provider.close();
       console.log("standalone registration/activation/close: ok");
     `], { cwd: temp, encoding: "utf8", timeout: 10000 });

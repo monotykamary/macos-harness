@@ -39,6 +39,23 @@ requests. No shell, retries, stderr forwarding, implicit reconnect, or cached
 handle reuse. Interrupted dispatched effects are honestly `outcome_unknown`.
 Use fresh observations after explicit reconnect. Wait budgets must fit call deadlines.
 
+## OCR and settling
+
+The connection config optionally accepts `ocr: "never" | "auto" | "always"`
+(default `never`) and `ocrRecognitionLevel: "fast" | "accurate"` (default `fast`).
+These become literal CLI flags only on explicit connect; registration/activation
+remain idle. Enabling OCR grants local pixel disclosure for the allowed apps and
+requires already-approved Screen Recording. The server warms and owns one isolated
+Vision worker. No model credentials or Apple Intelligence are involved.
+
+`macos.settle({scope, revision, timeoutMs?, reactionMs?, quietMs?})` distinguishes
+reaction, quiet and timeout; it returns `{reacted, settled, timedOut, observation}`.
+It never proves goal completion. Its defaults are 2000/600/150ms. Choose a call
+timeout that covers worker startup and the requested wait; pixel observations
+can require longer than AX-only observations. `waitForChange` remains a distinct
+first-change operation. Read the [interaction contract](../docs/interaction-contract.md)
+for OCR refusal/privacy limits and the legacy `press` versus native `click` names.
+
 ## Offline development checks
 
 From this directory only:

@@ -124,9 +124,11 @@ optionally `value`. Use returned IDs, never AX integer indices:
 {"id":3,"method":"waitForChange","args":{"scope":{"app":"com.apple.TextEdit"},"revision":"<returned revision>","timeoutMs":1000}}
 ```
 
-Only these operation names are supported:
+Supported operations are advertised per candidate:
 
-- `press`: target currently exposes native `AXPress`.
+- `click`: native `AXPress`; legacy `press` remains a compatible alias (not a keyboard key).
+- `increment`, `decrement`, `scroll_up`, `scroll_down`, `scroll_left`,
+  `scroll_right`, and `showMenu`: only when the corresponding native AX action exists.
 - `setValue`: a non-secure `AXTextField`/`AXTextArea` with settable `AXValue`;
   requires `text` (empty allowed, at most 4096 UTF-8 bytes). No typing/focus action
   is synthesized. `text` on other operations is rejected.
@@ -147,6 +149,29 @@ ID return `id: null`; oversize frames are drained before the next request.
 EOF ends the server; an unterminated last frame is rejected, not executed.
 Errors include `invalid_json`, `invalid_request`, `invalid_args`, `unknown_method`,
 `scope_denied`, `line_too_large`, `response_too_large`, and `backend_error`.
+
+### Settling, scoped apps, and optional OCR
+
+`settle(scope, revision, timeoutMs=2000, reactionMs=600, quietMs=150)` waits for a
+reaction followed by quiet and returns `{reacted, settled, timedOut, observation}`.
+It is separate from `waitForChange`; neither proves task completion. Both methods
+are available over JSONL and the optional provider (`macos.settle`). AX activity
+notifications supplement fresh reads with polling fallback, not a stale cache.
+
+Use `control.app("com.apple.TextEdit")` for scoped `observe`, `act`,
+`waitForChange`, and `settle` ergonomics. Close the controller (or use `with`) to
+release observers. Scope objects never follow the frontmost app or grant authority.
+
+Opt in to local Apple Vision OCR with `serve --ocr auto` (or `always`),
+`NativeHybridBackend(mac, ocr="auto")`, or provider config `ocr: "auto"`.
+The default remains AX-only (`never`). Screen Recording must already be approved.
+OCR candidates carry source, geometry and confidence; pixel clicks are revalidated
+and foreground-only. Fast recognition is the default; `--ocr-recognition-level
+accurate` is explicit. A bounded, owned worker keeps Vision isolated and warm.
+No Apple Intelligence, Jev, cloud API, or automatic permission approval is involved.
+
+See the [interaction contract](docs/interaction-contract.md) for operation meanings,
+OCR privacy limitations and refusal cases, lifecycle, timing, and tests.
 
 ### Python library / regular model CLI
 
@@ -189,8 +214,8 @@ and `macos_harness.MacOS`; injectable backend types live in
   observation. Raw mutations and raw snapshot resets invalidate guarded handles.
 - Before effects, the backend rereads the bounded snapshot and then the pinned
   target's process, window, state, enabledness, and native capabilities. AX reads
-  use a 50ms messaging timeout and a 2s observation budget. Wait polls at most
-  every 100ms, defaults to 1000ms, and accepts 0–60000ms; zero performs one bounded
+  use a 50ms messaging timeout and a 2s observation budget. AX notifications wake waits early; polling remains at most
+  every 100ms. Wait defaults to 1000ms and accepts 0–60000ms; zero performs one bounded
   observation. Native timeout/failure may return `backend_error`; macOS scheduling
   and native calls are not hard real-time. At a polling deadline the latest
   complete observation acquired during that wait is returned; it is still

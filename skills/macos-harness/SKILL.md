@@ -69,11 +69,13 @@ authorized target from that bounded evidence. Do not invent IDs or use raw indic
 {"id":3,"method":"waitForChange","args":{"scope":{"app":"com.apple.TextEdit"},"revision":"<returned revision>","timeoutMs":1000}}
 ```
 
-Exact operation names:
-- `press`: native `AXPress` is supported on the enabled target.
+Exact operation names (use only advertised capabilities):
+- `click`: native `AXPress`; legacy `press` remains an alias, **not a keyboard key**.
+- `increment`, `decrement`, `scroll_up`, `scroll_down`, `scroll_left`,
+  `scroll_right`, `showMenu`: corresponding native AX actions only.
 - `setValue`: native `AXValue` is settable on a non-secure text field/area;
   `text` is required, may be empty, and is at most 4096 UTF-8 bytes.
-No other operations; `text` is not accepted for `press`.
+No synthetic keyboard/wheel fallback. Only `setValue` accepts `text`.
 
 Act returns `status: executed | stale | blocked | outcome_unknown` and optional
 `reason`. `executed` is a native receipt, not proof of the desired result. Check the
@@ -88,6 +90,41 @@ references, and raw invalidation generation prevent reused indices/PIDs from
 silently redirecting actions. Raw mutations and snapshot resets require observing
 again. Unknown methods/fields/types are rejected. Invalid framing without a usable
 ID returns `id:null`; never replay an effect after a lost transport response.
+
+## Settling and local OCR
+
+`settle` accepts `scope`, `revision`, optional `timeoutMs` (2000), `reactionMs`
+(600), and `quietMs` (150), each 0–60000. It returns `reacted`, `settled`,
+`timedOut`, and `observation`. Quiet requires a reaction first; it is not task
+verification. AX notifications supplement polling; no stale cache authorizes acts.
+`macos.settle` is also available through the optional provider.
+
+`control.app(APP)` binds an allowed scope with `observe()`,
+`act(observationId, action)`, `waitForChange(revision, ...)`, and
+`settle(revision, ...)`. Close the controller (`with GuardedController(...)`)
+to release its observer and OCR worker. Global one-shot handle rules still apply.
+
+Pixels require explicit opt-in: CLI `serve --ocr auto|always`, Python
+`NativeHybridBackend(mac, ocr="auto")`, or provider config `ocr: "auto"`.
+Default is `never` (AX-only). Recognition uses local Apple Vision, not Apple
+Intelligence, in one owned worker warmed at explicit hybrid construction.
+`--ocr-recognition-level fast|accurate` / config `ocrRecognitionLevel` defaults
+to `fast`; accurate may exceed deadlines. No model/cloud key is needed.
+
+Requires previously approved Screen Recording. `auto` skips pixels if usable AX
+controls exist. Only one unambiguous on-screen window is supported. Observations
+add `ocrStatus`, `changeSource`; candidates may add `source`, screen-point
+`bounds`, and OCR `confidence`. Only high-confidence OCR text can offer `click`.
+It is a pixel hit, not a semantic-control guarantee. Re-OCR and full-raster
+freshness checks precede foreground-only input; do not repair stale animated
+windows with speculative clicks. Images stay local and temporary captures are
+removed. Allow sufficient wait budgets for fresh OCR observations.
+
+OCR is blocked for truncated/protected/redacted/dialog/approval state, ambiguous
+windows, or missing native-control geometry; it never clicks over known AX
+controls. Never enable OCR to bypass a denial. AX can mislabel secrets, so these
+checks are not DLP: opt-in grants pixel disclosure for that app. Do not enable
+pixels on sensitive surfaces assuming text redaction makes screenshots safe.
 
 ## Regular model: Python in one CLI call
 
@@ -110,7 +147,8 @@ print(control.observe(scope))
 PY
 ```
 
-Library imports: `from macos_harness import MacOS, GuardedController, NativeAXBackend`.
+Library imports: `MacOS`, `GuardedController`, `GuardedApp`, `NativeAXBackend`,
+`NativeHybridBackend`, and `VisionOCR` from `macos_harness`.
 Construct `MacOS()` once, keep the controller alive, and do not share the backend
 with concurrent raw callers. Separate ordinary CLI invocations do not preserve
 handles; use the RPC server for multi-decision persistence.

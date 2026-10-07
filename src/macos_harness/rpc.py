@@ -30,12 +30,13 @@ def dispatch(controller: GuardedController, request: dict) -> dict:
     fields(request, {"id", "method", "args"})
     integer(request["id"], -(2**53 - 1), 2**53 - 1)
     method = request["method"]
-    if not isinstance(method, str) or method not in {"observe", "act", "waitForChange"}:
+    if not isinstance(method, str) or method not in {"observe", "act", "waitForChange", "settle"}:
         raise GuardedError("unknown_method", "Unknown RPC method")
     required, optional = {
         "observe": ({"scope"}, {"maxElements"}),
         "act": ({"scope", "observationId", "action"}, set()),
         "waitForChange": ({"scope", "revision"}, {"timeoutMs"}),
+        "settle": ({"scope", "revision"}, {"timeoutMs", "reactionMs", "quietMs"}),
     }[method]
     args = fields(request["args"], required, optional)
     return getattr(controller, method)(**args)
@@ -121,17 +122,23 @@ def serve(
         stdout.flush()
 
 
-def serve_cli(allowed_apps: list[str]) -> int:
+def serve_cli(allowed_apps: list[str], *, ocr: str = "never", recognition_level: str = "fast") -> int:
     """Reserve stdout's fd for framing, including against native library prints."""
     from .guarded_ax import NativeAXBackend
     from .macos import MacOS
 
     sys.stdout.flush()
     wire_fd = os.dup(sys.stdout.fileno())
+    controller = None
     try:
         os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
         with os.fdopen(os.dup(wire_fd), "wb") as wire:
-            controller = GuardedController(NativeAXBackend(MacOS()), allowed_apps)
+            if ocr == "never":
+                backend = NativeAXBackend(MacOS())
+            else:
+                from .guarded_hybrid import NativeHybridBackend
+                backend = NativeHybridBackend(MacOS(), ocr=ocr, recognition_level=recognition_level)
+            controller = GuardedController(backend, allowed_apps)
             serve(controller, sys.stdin.buffer, wire)
         return 0
     except BrokenPipeError:
@@ -140,6 +147,8 @@ def serve_cli(allowed_apps: list[str]) -> int:
         print("macos-harness: unable to start guarded server", file=sys.stderr)
         return 1
     finally:
+        if controller is not None:
+            controller.close()
         sys.stdout.flush()
         os.dup2(wire_fd, sys.stdout.fileno())
         os.close(wire_fd)

@@ -53,7 +53,7 @@ describe("optional macOS v1 registration", () => {
     const owned = owner();
     expect(await definition.activate(owned.context, config)).toBeUndefined();
     try {
-      expect((await owned.provider.list({}, invocation)).map(action => action.name)).toEqual(["connect", "observe", "act", "waitForChange"]);
+      expect((await owned.provider.list({}, invocation)).map(action => action.name)).toEqual(["connect", "observe", "act", "waitForChange", "settle"]);
       await expect(owned.provider.invoke("observe", { scope: { app: "Test" } }, invocation)).rejects.toThrow("connect");
     } finally { await owned.provider.close?.(); }
   });

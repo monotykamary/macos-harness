@@ -62,6 +62,8 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("apps", help="list running macOS applications")
     serve = subparsers.add_parser("serve", help="persistent guarded JSON-lines RPC (no Python evaluation)")
     serve.add_argument("--app", action="append", required=True, help="exact allowed app selector; repeat for multiple apps")
+    serve.add_argument("--ocr", choices=("never", "auto", "always"), default="never", help="opt-in local Vision OCR; needs previously approved Screen Recording")
+    serve.add_argument("--ocr-recognition-level", choices=("accurate", "fast"), default="fast")
     subparsers.add_parser("repl", help="start a persistent interactive Python session")
     subparsers.add_parser("skill", help="print the macOS Harness skill")
     telemetry = subparsers.add_parser(
@@ -90,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "serve":
         from .rpc import serve_cli
 
-        return serve_cli(args.app)
+        return serve_cli(args.app, ocr=args.ocr, recognition_level=args.ocr_recognition_level)
     if args.command == "telemetry":
         return run_telemetry_cli([args.action] if args.action else [])
 

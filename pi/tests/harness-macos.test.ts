@@ -19,6 +19,7 @@ function setup(overrides: Partial<MacOSHarnessClient> = {}, settings: MacOSHarne
     isConnected: () => connected,
     observe: vi.fn(async () => observation), act: vi.fn(async () => ({ status: "executed" })),
     waitForChange: vi.fn(async () => ({ changed: false, observation })),
+    settle: vi.fn(async () => ({ reacted: false, settled: false, timedOut: false, observation })),
     close: vi.fn(() => { connected = false; }), ...overrides,
   };
   const factory = vi.fn(async () => client);
@@ -52,7 +53,7 @@ describe("macOS Harness provider", () => {
     const other = new MacOSHarnessProvider({ ...config, allowedApps: ["Other"] });
     try {
       const descriptors = await provider.list();
-      expect(descriptors.map(d => [d.name, d.risk])).toEqual([["connect", "execute"], ["observe", "read"], ["act", "execute"], ["waitForChange", "read"]]);
+      expect(descriptors.map(d => [d.name, d.risk])).toEqual([["connect", "execute"], ["observe", "read"], ["act", "execute"], ["waitForChange", "read"], ["settle", "read"]]);
       for (const descriptor of descriptors) {
         expect(descriptor.effect).toEqual({ kind: "emission", resources: ["harness:macos"], ordering: "ordered" });
         expect(descriptor.description).toContain("Notes");
