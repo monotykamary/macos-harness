@@ -50,6 +50,7 @@ WRAPPERS = (
     "xargs",
     "sudo",
     "sandbox-exec",
+    "jev-fabric",  # a fresh process per `exec`: the agent is the one that ran it
 )
 APP_BUNDLE = re.compile(r"(?<=\.app)(?=/)")  # after every ".app" path part
 

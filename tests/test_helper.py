@@ -93,6 +93,18 @@ def test_wrappers_between_the_shell_and_the_agent_do_not_split_the_session():
     assert sessions.agent(70, {}) is sessions.agent(50, {})
 
 
+def test_commands_run_through_jev_fabric_keep_the_agents_session():
+    # `jev-fabric -- exec` starts one jev-fabric process per command (measured,
+    # jev-fabric 0.8.0): each would otherwise be an agent of its own, and every action
+    # would come after no state read.
+    rows = [row for row in PLAIN if row[0] not in (50, 70)]
+    rows += [(45, 40, "/Users/x/.local/bin/jev-fabric"), (50, 45, "/usr/bin/python3")]
+    rows += [(65, 60, "/Users/x/.local/bin/jev-fabric"), (70, 65, "/usr/bin/python3")]
+    sessions = tree(*rows)
+    assert sessions.agent(50, {}).key == "30:1030.0"
+    assert sessions.agent(70, {}) is sessions.agent(50, {})
+
+
 def test_a_login_shell_is_a_shell_and_two_agents_are_two_sessions():
     rows = [(1, 0, "/sbin/launchd"), (20, 1, "-zsh"), (30, 20, AGENT), (31, 20, AGENT)]
     rows += [(50, 30, "/usr/bin/python3"), (51, 31, "/usr/bin/python3")]
