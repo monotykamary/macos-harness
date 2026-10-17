@@ -21,8 +21,6 @@ def private_state(tmp_path, monkeypatch):
     monkeypatch.setenv("MACOS_HARNESS_POINTER", "0")
     monkeypatch.setenv("MACOS_HARNESS_HOME", str(tmp_path / "state"))
     monkeypatch.setenv("MACOS_HARNESS_SOCKET", os.path.join(short, "helper.sock"))
-    # Nothing leaves the machine from a test. A test that wants the payload patches again.
-    monkeypatch.setattr("macos_harness.telemetry._send", lambda payload: None)
     monkeypatch.delenv("MACOS_HARNESS_SESSION", raising=False)
     # No test holds the real display awake, and none sees another test's sessions.
     from macos_harness import helper

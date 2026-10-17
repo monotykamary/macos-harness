@@ -74,8 +74,8 @@ def ok(stdout="", stderr="", exit=0):
 
 
 def env(**more):
-    """The test's environment, with telemetry off for every process it starts."""
-    return {**os.environ, "MACOS_HARNESS_TELEMETRY": "0", **more}
+    """The test's environment for every process it starts."""
+    return {**os.environ, **more}
 
 
 def client(*argv, stdin=subprocess.DEVNULL, timeout=30, **more):
@@ -132,6 +132,21 @@ def imports(path: Path) -> tuple[set, set]:
     return top, inner
 
 
+# Modules that reach past the Mac. urllib.parse only splits page addresses.
+NETWORK = {"urllib.request", "http", "ssl", "requests", "httpx", "aiohttp", "posthog"}
+
+
+def test_nothing_leaves_the_mac():
+    """No telemetry and no network client: every socket is a Unix socket."""
+    for path in SRC.rglob("*.py"):
+        top, inner = imports(path)
+        reached = {m for m in top | inner if m in NETWORK or m.split(".")[0] in NETWORK}
+        assert not reached, f"{path.name} imports {reached}"
+        text = path.read_text().casefold()
+        for word in ("telemetry", "posthog", "af_inet", "create_connection"):
+            assert word not in text, f"{path.name} names {word}"
+
+
 def test_the_client_imports_only_what_it_was_given():
     top, inner = imports(SRC / "cli.py")
     allowed = {"json", "os", "select", "socket", "stat", "sys", "time", "protocol"}
@@ -146,7 +161,7 @@ def test_the_client_imports_only_what_it_was_given():
 POISON = """
 import sys
 heavy = ("macos_harness.model macos_harness.errors macos_harness.tools "
-         "macos_harness.helper macos_harness.telemetry objc AppKit Foundation Quartz "
+         "macos_harness.helper objc AppKit Foundation Quartz "
          "ApplicationServices CoreFoundation argparse subprocess pathlib dataclasses "
          "typing threading ctypes importlib.metadata logging").split()
 before = set(sys.modules)

@@ -93,9 +93,7 @@ def test_descriptions_are_the_tool_texts():
 
 
 def test_the_other_commands():
-    commands = (
-        "doctor skill install uninstall turn-started turn-ended approve telemetry help"
-    )
+    commands = "doctor skill install uninstall turn-started turn-ended approve help"
     assert sorted(tools.COMMANDS) == sorted(commands.split())
 
 
@@ -1356,8 +1354,5 @@ def test_doctor_skill_install(world):
     assert world.args("install.uninstall") == (None, "user", "/work", {})
 
 
-def test_telemetry_command(world):
-    code, out, _ = world.run("telemetry", "disable")
-    assert code == 0 and json.loads(out)["enabled"] is False
-    assert json.loads(world.run("telemetry")[1])["disabled_by_config"] is True
-    assert world.run("telemetry", "sometimes")[0] == 2
+def test_there_is_no_telemetry_command(world):
+    assert world.run("telemetry", "disable")[0] == 2

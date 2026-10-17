@@ -110,13 +110,3 @@ macos-harness get_app_state --app Finder
 command keeps the session of the agent that ran it, so its numbers carry over to the
 next call. A detached `jev-fabric -- start` job has no agent above it; give every
 job of one task the same `MACOS_HARNESS_SESSION=<name>` so they share one session.
-
-## Telemetry
-
-Anonymous telemetry contains only the CLI command category, success, duration,
-package version, OS/architecture, and detected agent client. It never includes
-prompts, app names, screenshots, text, scripts, paths, or window titles.
-
-```bash
-macos-harness telemetry disable
-```

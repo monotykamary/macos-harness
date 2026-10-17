@@ -98,13 +98,7 @@ While `paste` runs, what was on your clipboard is kept in a file only you can re
 (in the state folder) for about four seconds, so that it can be put back, also after
 a crash.
 
-Anonymous telemetry is enabled by default. It records only the CLI command
-category, success, duration, package version, OS/architecture, and detected agent
-client. It never records prompts, app names, screenshots, UI text, scripts, paths,
-or window titles.
-
-```bash
-macos-harness telemetry disable
-```
+There is no telemetry: nothing leaves the Mac. The helper and its client talk over a
+Unix socket only.
 
 Experimental. macOS only. [MIT licensed](LICENSE).

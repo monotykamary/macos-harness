@@ -48,7 +48,7 @@ BUTTONS = {name: n for n, names in enumerate(BUTTON_NAMES) for name in names.spl
 DIRECTIONS = {w[:n]: w for w in ("up", "down", "left", "right") for n in (1, len(w))}
 SELECTIONS = ("text", "cursor_before", "cursor_after")
 # The commands `--help` names. The rest are for the person and for the host's hooks.
-HELP_COMMANDS = ("doctor", "skill", "install", "uninstall", "telemetry")
+HELP_COMMANDS = ("doctor", "skill", "install", "uninstall")
 
 
 class NeedStdin(Exception):
@@ -578,14 +578,6 @@ def approve(call: Call) -> Result:
     return Result(f"Approved {target.name}.")
 
 
-def telemetry(call: Call) -> Result:
-    action = call.args.get("action")
-    code, out, err = mods.telemetry.run_cli([action] if action else [])
-    if code:
-        raise errors.UsageError(err.strip())
-    return Result(out, json.loads(out))
-
-
 def show_help(call: Call) -> Result:
     """`--help`: the tools, or one tool with its flags and one example."""
     asked = call.args.get("tool")
@@ -818,7 +810,6 @@ COMMANDS = {
     "turn-started": _tool(turn_started),
     "turn-ended": _tool(turn_ended, "cancel", defaults={"cancel": False}),
     "approve": _tool(approve, "app always", "app", defaults={"always": False}),
-    "telemetry": _tool(telemetry, bare="action"),
     "help": _tool(show_help, bare="tool"),
 }
 

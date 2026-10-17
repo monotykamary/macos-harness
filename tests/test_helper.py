@@ -512,20 +512,6 @@ def test_each_call_leaves_one_line_in_the_log_that_names_no_app(world, capsys):
     assert "Demo" not in line
 
 
-def test_telemetry_gets_the_command_and_nothing_about_the_app(world, monkeypatch):
-    seen = []
-    monkeypatch.setattr(helper.telemetry, "capture_cli", lambda *a: seen.append(a))
-    world.person.answers["gate"] = errors.still_interacting("/Applications/Demo.app")
-    answer("get_app_state", "Demo", env={"MACOS_HARNESS_TELEMETRY": "0"})
-    command, success, seconds, env, error_name = seen[0]
-    assert (command, success, error_name) == (
-        "get_app_state",
-        False,
-        "user_took_over",
-    )
-    assert env == {"MACOS_HARNESS_TELEMETRY": "0"} and 0 <= seconds < 5
-
-
 # --- the socket -------------------------------------------------------------------------
 
 

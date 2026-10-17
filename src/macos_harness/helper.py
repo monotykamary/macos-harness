@@ -23,7 +23,7 @@ import traceback
 from collections import deque
 from collections.abc import Callable
 
-from . import protocol, runloop, telemetry, tools
+from . import protocol, runloop, tools
 from .model import AgentSession, AppSession, AppTarget
 
 IDLE_EXIT_S = 15 * 60.0  # no call for this long: exit
@@ -446,14 +446,6 @@ def answer_for(
     error, seconds = outcome.error, time.monotonic() - started
     # One line per call in helper.log. It names the command, never the app.
     log(f"call {outcome.command} exit={outcome.exit} {seconds * 1000:.0f} ms")
-    _quietly(
-        telemetry.capture_cli,
-        outcome.command,
-        outcome.exit == 0,
-        seconds,
-        env,
-        error.name if error else None,
-    )
     reply = protocol.reply(id, outcome.exit, outcome.stdout, outcome.stderr)
     return reply, error.name if error else None
 

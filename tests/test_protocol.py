@@ -68,7 +68,7 @@ def test_a_closed_socket_is_end_of_file_also_in_the_middle_of_a_frame():
 
 def test_envelope_is_json_rpc_with_argv_and_an_absolute_deadline(monkeypatch):
     monkeypatch.setenv("MACOS_HARNESS_DIFF", "0")
-    monkeypatch.setenv("DO_NOT_TRACK", "1")
+    monkeypatch.setenv("DO_NOT_TRACK", "1")  # no telemetry: nothing reads it
     monkeypatch.setenv("SECRET_TOKEN", "never sent")
     deadline = time.time() + protocol.CALL_TIMEOUT_S
     message = protocol.request(["click", "--app", "X"], None, os.environ, deadline)
@@ -92,7 +92,7 @@ def test_envelope_is_json_rpc_with_argv_and_an_absolute_deadline(monkeypatch):
     assert params["argv"] == ["click", "--app", "X"] and params["stdin"] is None
     assert params["cwd"] == os.getcwd()
     assert params["env"]["MACOS_HARNESS_DIFF"] == "0"
-    assert params["env"]["DO_NOT_TRACK"] == "1"
+    assert "DO_NOT_TRACK" not in params["env"]
     # The caller's home folders travel too: `install` writes into them, not into the
     # helper's. Nothing else does.
     monkeypatch.setenv("XDG_CONFIG_HOME", "/somewhere")
@@ -102,9 +102,7 @@ def test_envelope_is_json_rpc_with_argv_and_an_absolute_deadline(monkeypatch):
     )
     assert "SECRET_TOKEN" not in sent
     assert all(
-        n.startswith("MACOS_HARNESS_")
-        or n in ("DO_NOT_TRACK", "HOME")
-        or n.endswith("_HOME")
+        n.startswith("MACOS_HARNESS_") or n == "HOME" or n.endswith("_HOME")
         for n in sent
     )
 
