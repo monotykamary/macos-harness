@@ -113,6 +113,7 @@ class Policy:
     allow_persistent: bool
     warning: str | None  # shown in the approval prompt when risk is high
     ask: bool = True  # the person is asked before the app's first use
+    request_permissions: bool = True  # a missing grant opens System Settings
 
 
 TYPE_DELAY = 0.00025  # seconds after every typed key event

@@ -15,7 +15,7 @@ import pytest
 from fakes_a import RUNNING, SHOT, TARGET, WINDOW
 
 from macos_harness import errors, helper, person, tools
-from macos_harness.model import AgentSession, AppKind, AppTarget
+from macos_harness.model import AgentSession, AppKind, AppTarget, Policy
 
 ACTION_LINE = "Done. Call `get_app_state` to see the new state of the UI.\n"
 SHOT_LINE = f"Screenshot (800x600 px): {SHOT.path}\n"
@@ -905,6 +905,17 @@ def test_the_person_gate_is_asked_again_after_the_wait_for_the_queue(active):
     code, _, err = active.run("click", "Demo", "0")
     assert (code, len(asked)) == (1, 2) and err == refusal.message + "\n"
     assert "actions.click" not in active.names()
+
+
+def test_the_policy_says_whether_a_missing_grant_opens_settings(world):
+    assert world.run("get_app_state", "Demo")[0] == 0
+    asked = [kw for called, _, kw in world.log if called == "permissions.gate"]
+    assert asked[-1]["request"] is True
+    quiet = Policy("allowed", "low", True, None, request_permissions=False)
+    world.policy.answers["decide"] = quiet
+    assert world.run("get_app_state", "Demo")[0] == 0
+    asked = [kw for called, _, kw in world.log if called == "permissions.gate"]
+    assert asked[-1]["request"] is False
 
 
 def test_an_action_before_a_state_read_is_not_active(world):

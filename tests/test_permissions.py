@@ -110,6 +110,19 @@ def test_a_call_whose_client_is_gone_stops_waiting_for_the_grants(mac):
     assert mac.clock.time() == pytest.approx(1002.0, abs=0.25)
 
 
+def test_with_requests_off_a_missing_grant_is_refused_unasked(mac):
+    """An unattended run (`request_permissions = false`): no prompt, no Settings pane,
+    no wait for a person who is not there."""
+    mac.granted["screen_recording"] = False
+    with pytest.raises(errors.HarnessError) as refusal:
+        permissions.gate(mac.clock.time() + 120.0, clock=mac.clock, request=False)
+    assert refusal.value.name == "permissions_missing" and refusal.value.code == 122
+    assert "under Screen Recording in System Settings" in refusal.value.message
+    assert mac.opened == mac.requests == [] and mac.clock.time() == 1000.0
+    mac.granted["screen_recording"] = True  # granted: requests off changes nothing
+    permissions.gate(mac.clock.time() + 120.0, clock=mac.clock, request=False)
+
+
 def test_while_permissions_pending_model_told_call_again_end(mac):
     mac.granted["accessibility"] = False
     refusal = mac.gate()

@@ -176,7 +176,9 @@ def _session(call: Call, state_read: bool):
     mods.approvals.ensure(
         agent, target, policy, call.deadline, abandoned=call.abandoned
     )
-    mods.permissions.gate(call.deadline, abandoned=call.abandoned)
+    mods.permissions.gate(
+        call.deadline, abandoned=call.abandoned, request=policy.request_permissions
+    )
     mods.lockscreen.gate(state_read)
     mods.person.gate(agent, target, state_read, abandoned=call.abandoned)
     with mods.helper.app_queue(target):

@@ -78,6 +78,19 @@ names that app.
   ends and when a session ends. A command whose shell exits counts as abandoned:
   `nohup macos-harness ... &` stops when the shell that started it exits.
 
+- For a run with nobody at the Mac, put `request_permissions = false` in `policy.toml`:
+  a missing grant is then refused at once, and System Settings is never opened. To
+  let the agent drive only some apps, deny the rest:
+
+  ```toml
+  request_permissions = false
+  default_app_access = "deny"
+
+  [bundle_ids]
+  "com.apple.TextEdit" = "allow"
+  "com.apple.Notes" = "allow"
+  ```
+
 - Notes of your own for one app go into
   `~/Library/Application Support/macos-harness/instructions/<bundle id>.md`
   (for every browser: `browser.md`). The agent gets the note with its first read of
@@ -90,6 +103,13 @@ Read an app in the background. Your front app and your pointer stay where they a
 ```bash
 macos-harness get_app_state --app Finder
 ```
+
+## Under jev-fabric
+
+`jev-fabric -- exec macos-harness get_app_state --app Finder` works as is: each
+command keeps the session of the agent that ran it, so its numbers carry over to the
+next call. A detached `jev-fabric -- start` job has no agent above it; give every
+job of one task the same `MACOS_HARNESS_SESSION=<name>` so they share one session.
 
 ## Telemetry
 

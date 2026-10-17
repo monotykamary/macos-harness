@@ -91,14 +91,19 @@ def _missing() -> list[str]:
     return [kind for kind in REQUIRED if kind not in _seen_granted]
 
 
-def gate(deadline: float, clock=time, abandoned=lambda: False) -> None:
+def gate(deadline: float, clock=time, abandoned=lambda: False, request=True) -> None:
     """Return once the required grants are there. Else show Settings and wait.
 
     Still missing shortly before the client gives up: the pending text, so the model
-    calls again. The person closed Settings without granting: not granted.
+    calls again. The person closed Settings without granting: not granted. With
+    `request` off (an unattended run) a missing grant is refused at once, unasked.
     """
     shown, settings_seen = None, False
     while missing := _missing():
+        if not request:
+            raise errors.permissions_not_granted(
+                grants=_names(missing), app=responsible_app()
+            )
         if missing[0] != shown:
             shown, settings_seen = missing[0], False
             open_settings(shown)

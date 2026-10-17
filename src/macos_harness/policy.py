@@ -75,6 +75,7 @@ DEFAULTS = {
     "strict": False,  # true: terminal apps are forbidden too
     "allow_persistent_approval": True,
     "allow_forbidden_targets": False,  # the switch that turns the forbidden list off
+    "request_permissions": True,  # false: a missing grant is refused, Settings stays shut
     "default_app_access": "allow",  # "allow" or "deny"
     "bundle_ids": {},  # bundle id -> "allow" or "deny", wins over the default
     "blocked_urls": [],  # shell patterns, matched against the whole URL and the host
@@ -86,6 +87,7 @@ SWITCHES = {
     "strict": any,
     "allow_persistent_approval": all,
     "allow_forbidden_targets": any,
+    "request_permissions": all,
 }
 REFUSALS = {"denied": errors.denied_by_policy, "forbidden": errors.forbidden}
 
@@ -146,6 +148,7 @@ def evaluate(agent: AgentSession, target: AppTarget) -> Policy:
         allow_persistent=config["allow_persistent_approval"],
         warning=WARNING if high else None,
         ask=config["ask_before_first_use"],
+        request_permissions=config["request_permissions"],
     )
 
 

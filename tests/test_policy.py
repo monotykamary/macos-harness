@@ -269,6 +269,13 @@ def test_persistent_approval_can_be_switched_off(files, layer):
     assert policy.decide(agent(), app("Notes")).allow_persistent is False
 
 
+@pytest.mark.parametrize("layer", ["managed", "person"])
+def test_permission_requests_can_be_switched_off_by_either_file(files, layer):
+    assert policy.decide(agent(), app("Notes")).request_permissions is True
+    files(layer, "request_permissions = false\n")
+    assert policy.decide(agent(), app("Notes")).request_permissions is False
+
+
 @pytest.mark.parametrize(
     "info, expected",
     [
